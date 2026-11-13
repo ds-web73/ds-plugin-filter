@@ -1,0 +1,81 @@
+name: Indexation du catalogue
+
+on:
+  schedule:
+    - cron: "17 2 * * *"   # chaque nuit à 2h17 UTC
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Passe complète avec descriptions (indice d'achats intégrés)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: indexation
+  cancel-in-progress: false
+
+env:
+  WPF_CONTACT: contact@ds-web.fr   # adresse de contact envoyée à l'API WordPress.org
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Récupération de la base de la veille
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: catalog.db
+          key: catalog-${{ github.run_id }}
+          restore-keys: catalog-
+
+      - name: Aspiration du catalogue
+        run: |
+          # Passe complète si pas de base en cache, si demandée, ou le dimanche ; légère sinon
+          if [ -z "${{ steps.cache.outputs.cache-matched-key }}" ] \
+             || [ "${{ inputs.full }}" = "true" ] \
+             || [ "$(date -u +%u)" = "7" ]; then
+            MODE=full
+          else
+            MODE=light
+          fi
+          echo "Mode : $MODE"
+          python3 scripts/wp_catalog.py fetch --mode "$MODE" --reset
+
+      - name: Classement par catégories
+        run: python3 scripts/wp_categories.py --save --top 30
+
+      - name: Export JSON
+        run: python3 scripts/wp_export.py --out site
+
+      - name: Sauvegarde de la base pour la nuit suivante
+        uses: actions/cache/save@v4
+        with:
+          path: catalog.db
+          key: catalog-${{ github.run_id }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
