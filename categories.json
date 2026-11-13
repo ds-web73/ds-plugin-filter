@@ -43,7 +43,12 @@
     "ssl",
     "https",
     "authentication",
-    "password"
+    "password",
+    "activity-log",
+    "audit-log",
+    "security-log",
+    "audit-trail",
+    "activity-logs"
   ],
   "Utilisateurs & connexion": [
     "login",
