@@ -19,11 +19,12 @@ import json
 import random
 import re
 import sqlite3
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 
 DB = "catalog.db"
 CATEGORIES = "categories.json"
+OVERRIDES = "overrides.json"
 FRESH_DAYS = 730
 
 # Morceaux de tags composés trop ambigus ("user-friendly", "promo-code", "share-price"…)
@@ -79,7 +80,7 @@ def lookup(word, mapping):
 
 
 def text_patterns(mapping):
-    pats = []
+    pats = defaultdict(list)
     for term, cat in mapping.items():
         if term in TEXT_SKIP:
             continue
@@ -90,22 +91,26 @@ def text_patterns(mapping):
         else:
             body = re.escape(words).replace(r"\ ", r"[\s-]")
             rx = re.compile(r"(?<![\w-])" + body + r"(?:s|es)?(?![\w-])", re.I)
-        pats.append((rx, cat))
+        pats[cat].append(rx)
     return pats
 
 
-def classify(name, short_desc, tags, mapping, pats, unclassified):
-    cats = {}
+def classify(name, short_desc, tags, mapping, pats, unclassified, stats):
+    """Retourne {catégorie: méthode} en ne gardant que les catégories dominantes."""
+    scores = Counter()
+    methods = {}
     for t in tags:
         if t in mapping:
-            cats.setdefault(mapping[t], "tag")
-    has_exact = bool(cats)
+            scores[mapping[t]] += 1
+            methods.setdefault(mapping[t], "tag")
+    has_exact = bool(scores)
     for t in tags:
         if t in mapping:
             continue
         found = lookup(t, mapping)
         if found:
-            cats.setdefault(found, "variante")
+            scores[found] += 1
+            methods.setdefault(found, "variante")
             continue
         parts = t.split("-")
         hit = False
@@ -116,16 +121,40 @@ def classify(name, short_desc, tags, mapping, pats, unclassified):
                     continue
                 found = lookup(p, mapping)
                 if found:
-                    cats.setdefault(found, "variante")
+                    scores[found] += 1
+                    methods.setdefault(found, "variante")
                     hit = True
         if not hit:
             unclassified[t] += 1
-    if not cats:
-        text = f"{name or ''} {short_desc or ''}"
-        for rx, cat in pats:
-            if rx.search(text):
-                cats.setdefault(cat, "description")
-    return cats
+
+    text = f"{name or ''} {short_desc or ''}"
+    if scores:
+        # Le nom et la description confirment (+1) les catégories déjà trouvées par les tags
+        for cat in list(scores):
+            if any(rx.search(text) for rx in pats.get(cat, ())):
+                scores[cat] += 1
+    else:
+        for cat, rxs in pats.items():
+            if any(rx.search(text) for rx in rxs):
+                scores[cat] += 1
+                methods.setdefault(cat, "description")
+    if not scores:
+        return {}
+
+    # Catégories dominantes : au moins la moitié du score de la catégorie principale
+    top = max(scores.values())
+    kept = {c: methods[c] for c, sc in scores.items() if sc >= top / 2}
+    stats["retirées"] += len(scores) - len(kept)
+    return kept
+
+
+def load_overrides():
+    try:
+        with open(OVERRIDES, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return {}
+    return {k: v for k, v in data.items() if not k.startswith("_")}
 
 
 def main():
@@ -143,14 +172,22 @@ def main():
         "SELECT slug, name, short_description, tags, active_installs, last_updated FROM plugins"
     ).fetchall()
 
+    overrides = load_overrides()
+    unknown = {c for cats in overrides.values() for c in cats if c not in cats_def}
+    if unknown:
+        print("Attention, catégories inconnues dans overrides.json :", ", ".join(sorted(unknown)))
+    stats = Counter()
     unclassified = Counter()
     per_cat = Counter()
     nb_cats = Counter()
     results = []  # (slug, name, cats, best_method, installs, fresh)
-    order = {"tag": 0, "variante": 1, "description": 2}
+    order = {"manuel": 0, "tag": 1, "variante": 2, "description": 3}
 
     for slug, name, sd, tags_json, installs, updated in rows:
-        cats = classify(name, sd, json.loads(tags_json), mapping, pats, unclassified)
+        cats = classify(name, sd, json.loads(tags_json), mapping, pats, unclassified, stats)
+        if slug in overrides:
+            cats = {c: "manuel" for c in overrides[slug] if c in cats_def}
+            stats["manuels"] += 1
         best = min(cats.values(), key=order.get) if cats else None
         results.append((slug, name, cats, best, installs or 0, (updated or "") >= limit))
         per_cat.update(cats.keys())
@@ -164,12 +201,14 @@ def main():
     print(f"\n=== Couverture cumulée ({len(cats_def)} catégories, {len(mapping)} tags) ===\n")
     print(f"  {'':<16} {'tous':>8} {'actifs':>8} {'installs':>9}")
     allowed = set()
-    for method, label in (("tag", "tags exacts"), ("variante", "+ variantes"), ("description", "+ description")):
+    for method, label in (("manuel", "manuels"), ("tag", "+ tags exacts"), ("variante", "+ variantes"), ("description", "+ description")):
         allowed.add(method)
         sel = [r for r in results if r[3] in allowed]
         print(f"  {label:<16} {pct(len(sel), n):>8} {pct(sum(r[5] for r in sel), n_fresh):>8} "
               f"{pct(sum(r[4] for r in sel), inst_total):>9}")
 
+    print(f"\nCatégories minoritaires écartées : {stats['retirées']}"
+          f" — corrections manuelles appliquées : {stats['manuels']}")
     print("\nNombre de catégories par plugin :")
     for k in sorted(nb_cats):
         label = f"{k}+" if k == 4 else str(k)
