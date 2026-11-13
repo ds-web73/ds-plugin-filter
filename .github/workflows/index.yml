@@ -27,15 +27,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Récupération de la base de la veille
         id: cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: catalog.db
           key: catalog-${{ github.run_id }}
@@ -61,12 +61,12 @@ jobs:
         run: python3 scripts/wp_export.py --out site
 
       - name: Sauvegarde de la base pour la nuit suivante
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: catalog.db
           key: catalog-${{ github.run_id }}
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: site
 
