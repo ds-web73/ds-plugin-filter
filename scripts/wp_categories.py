@@ -29,7 +29,7 @@ FRESH_DAYS = 730
 
 # Morceaux de tags composés trop ambigus ("user-friendly", "promo-code", "share-price"…)
 COMPONENT_SKIP = {"user", "users", "code", "support", "store", "share", "post", "page", "pages", "custom",
-                  "import", "export", "demo", "https", "ssl"}
+                  "import", "export", "demo", "https", "ssl", "event", "events"}
 
 # Termes ignorés dans le nom et la description : trop courants dans un texte libre
 TEXT_SKIP = {
