@@ -128,7 +128,7 @@ def to_row(p, run_id, with_description):
     if with_description:
         description = clean(p.get("description") or (p.get("sections") or {}).get("description", ""))
         signals = [k for k, rx in IAP_REGEX.items() if rx.search(description)]
-        score = len(signals) + (2 if bm == "commercial" else 0)
+        score = len(signals)  # le statut déclaré "commercial" ne signifie pas "payant"
         iap_score, iap_signals = score, json.dumps(signals)
     else:
         iap_score, iap_signals = None, None  # inconnu pour un nouveau plugin, conservé sinon
