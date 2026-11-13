@@ -1,0 +1,4 @@
+{
+  "_comment": "Corrections manuelles : slug du plugin -> liste de catégories (noms exacts de categories.json). Remplace le classement automatique.",
+  "litespeed-cache": ["Performance"]
+}
