@@ -1,4 +1,12 @@
 {
   "_comment": "Corrections manuelles : slug du plugin -> liste de catégories (noms exacts de categories.json). Remplace le classement automatique.",
-  "litespeed-cache": ["Performance"]
+  "litespeed-cache": [
+    "Performance"
+  ],
+  "wp-security-audit-log": [
+    "Sécurité"
+  ],
+  "tracking-code-manager": [
+    "Marketing"
+  ]
 }
